@@ -1,0 +1,130 @@
+/* recorder.css - 录制器浮动 UI 样式 */
+#autotask-recorder {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 2147483647;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 13px;
+    min-width: 260px;
+    overflow: hidden;
+    border: 1px solid #45475a;
+    user-select: none;
+}
+
+#autotask-recorder .ar-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: #313244;
+    cursor: move;
+    font-weight: 600;
+}
+
+#autotask-recorder .ar-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #f38ba8;
+    animation: ar-pulse 1.2s infinite;
+}
+
+@keyframes ar-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.2); }
+}
+
+#autotask-recorder .ar-status {
+    flex: 1;
+    font-size: 12px;
+}
+
+#autotask-recorder .ar-body {
+    padding: 10px 14px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+#autotask-recorder .ar-step {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    background: #313244;
+    border-radius: 6px;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#autotask-recorder .ar-step-type {
+    background: #89b4fa;
+    color: #1e1e2e;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+#autotask-recorder .ar-step-type.fill { background: #a6e3a1; }
+#autotask-recorder .ar-step-type.press { background: #f9e2af; color: #1e1e2e; }
+#autotask-recorder .ar-step-type.wait { background: #fab387; }
+#autotask-recorder .ar-step-type.navigate { background: #cba6f7; }
+
+#autotask-recorder .ar-step-desc {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#autotask-recorder .ar-empty {
+    color: #6c7086;
+    text-align: center;
+    padding: 12px;
+    font-style: italic;
+}
+
+#autotask-recorder .ar-footer {
+    display: flex;
+    gap: 6px;
+    padding: 10px 14px;
+    background: #181825;
+    border-top: 1px solid #313244;
+}
+
+#autotask-recorder button {
+    flex: 1;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.15s;
+    font-family: inherit;
+}
+
+#autotask-recorder .ar-btn-pause { background: #f9e2af; color: #1e1e2e; }
+#autotask-recorder .ar-btn-pause:hover { background: #e6c97a; }
+
+#autotask-recorder .ar-btn-wait { background: #fab387; color: #1e1e2e; }
+#autotask-recorder .ar-btn-wait:hover { background: #e89a5e; }
+
+#autotask-recorder .ar-btn-save { background: #a6e3a1; color: #1e1e2e; }
+#autotask-recorder .ar-btn-save:hover { background: #85c97f; }
+
+#autotask-recorder .ar-btn-cancel { background: #45475a; color: #cdd6f4; }
+#autotask-recorder .ar-btn-cancel:hover { background: #585b70; }
+
+/* 高亮悬停元素 */
+.ar-highlight {
+    outline: 2px solid #89b4fa !important;
+    outline-offset: 2px !important;
+    cursor: crosshair !important;
+}

@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            width: 320px;
+            padding: 15px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f9f9f9;
+        }
+
+        h2 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 16px;
+            color: #333;
+            text-align: center;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        input[type="time"],
+        input[type="text"] {
+            width: 100%;
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-sizing: border-box;
+            margin-bottom: 5px;
+        }
+
+        button {
+            width: 100%;
+            padding: 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+            background-color: #2196F3;
+            color: white;
+            margin-top: 5px;
+        }
+
+        button:hover { background-color: #0b7dda; }
+
+        button.record-btn {
+            background-color: #9C27B0;
+        }
+        button.record-btn:hover { background-color: #7B1FA2; }
+
+        button.delete-btn {
+            background-color: #ff4444;
+            width: auto;
+            padding: 4px 8px;
+            font-size: 10px;
+            margin: 0;
+            float: right;
+        }
+        button.delete-btn:hover { background-color: #cc0000; }
+
+        button.run-btn {
+            background-color: #4CAF50;
+            width: auto;
+            padding: 4px 8px;
+            font-size: 10px;
+            margin: 0 5px 0 0;
+            float: right;
+        }
+        button.run-btn:hover { background-color: #388E3C; }
+
+        .task-item {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .task-info {
+            font-size: 12px;
+            margin-bottom: 5px;
+            word-break: break-all;
+        }
+        .task-info strong { color: #333; }
+
+        .task-status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+        .status-pending { background-color: #e0e0e0; color: #666; }
+        .status-success { background-color: #4CAF50; color: white; }
+        .status-failed { background-color: #f44336; color: white; }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .task-steps {
+            font-size: 10px;
+            color: #888;
+            margin-top: 4px;
+            padding: 4px 6px;
+            background: #f5f5f5;
+            border-radius: 3px;
+        }
+
+        #status {
+            margin-top: 10px;
+            font-size: 11px;
+            color: #888;
+            text-align: center;
+        }
+
+        .task-last-time {
+            font-size: 10px;
+            color: #999;
+            text-align: right;
+            margin-top: 4px;
+        }
+
+        hr {
+            border: 0;
+            border-top: 1px solid #eaeaea;
+            margin: 15px 0;
+        }
+
+        .section-title {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        /* ===== 编辑面板 ===== */
+        button.edit-btn {
+            background-color: #FF9800;
+            width: auto;
+            padding: 4px 8px;
+            font-size: 10px;
+            margin: 0 5px 0 0;
+            float: right;
+        }
+        button.edit-btn:hover { background-color: #F57C00; }
+
+        .edit-panel {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f5f7fa;
+            border-radius: 6px;
+            border: 1px solid #e0e6ed;
+        }
+
+        .edit-step {
+            display: grid;
+            grid-template-columns: 24px 1fr;
+            gap: 6px;
+            padding: 8px 0;
+            border-bottom: 1px dashed #e0e6ed;
+        }
+        .edit-step:last-of-type { border-bottom: none; }
+
+        .edit-step-index {
+            font-size: 11px;
+            font-weight: 700;
+            color: #888;
+            text-align: center;
+            line-height: 24px;
+        }
+
+        .edit-step-body {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .edit-step-head {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: #444;
+        }
+        .edit-step-head .tag {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 10px;
+            text-transform: uppercase;
+            color: #fff;
+            background: #888;
+        }
+        .tag.click { background: #2196F3; }
+        .tag.fill { background: #4CAF50; }
+        .tag.press { background: #FF9800; }
+        .tag.wait { background: #9C27B0; }
+        .tag.navigate { background: #009688; }
+        .tag.select { background: #795548; }
+
+        .edit-step-desc {
+            flex: 1;
+            color: #666;
+            font-size: 11px;
+            word-break: break-all;
+        }
+
+        .edit-step-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: #555;
+        }
+
+        .edit-step-row label {
+            margin: 0;
+            min-width: 64px;
+        }
+
+        .edit-step-row input {
+            flex: 1;
+            padding: 3px 6px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-size: 11px;
+            box-sizing: border-box;
+        }
+
+        .edit-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+        }
+        .edit-actions button {
+            flex: 1;
+            padding: 6px;
+            font-size: 12px;
+            margin: 0;
+        }
+        .edit-actions .btn-save-edit { background-color: #4CAF50; }
+        .edit-actions .btn-save-edit:hover { background-color: #388E3C; }
+        .edit-actions .btn-cancel-edit { background-color: #9E9E9E; }
+        .edit-actions .btn-cancel-edit:hover { background-color: #757575; }
+
+        .btn-del-step {
+            background-color: transparent;
+            color: #f44336;
+            border: 1px solid #f44336;
+            width: auto;
+            padding: 2px 6px;
+            font-size: 10px;
+            margin: 0;
+            border-radius: 3px;
+        }
+        .btn-del-step:hover { background-color: #f44336; color: #fff; }
+    </style>
+</head>
+
+<body>
+    <h2>Web Auto Task</h2>
+
+    <div id="task-list"></div>
+
+    <div class="control-group">
+        <div class="section-title">添加任务（录制）</div>
+        <input type="text" id="new-name" placeholder="任务名称 (可选)">
+        <input type="text" id="new-url" placeholder="网址 https://...">
+        <input type="time" id="new-time" value="09:00">
+        <button id="btn-record" class="record-btn">开始录制</button>
+    </div>
+
+    <div id="status"></div>
+
+    <hr>
+
+    <div class="control-group">
+        <div class="section-title">调试</div>
+        <button id="btn-reload-alarms">重载定时</button>
+        <button id="btn-run-all">立即执行全部</button>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>

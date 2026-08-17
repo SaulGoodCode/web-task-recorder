@@ -1,0 +1,29 @@
+{
+    "manifest_version": 3,
+    "name": "Web Auto Task (Record & Replay)",
+    "version": "2.0",
+    "description": "录制网页操作并按计划自动回放执行。",
+    "permissions": [
+        "alarms",
+        "tabs",
+        "storage",
+        "scripting",
+        "activeTab"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "action": {
+        "default_title": "Web Auto Task",
+        "default_popup": "popup.html"
+    },
+    "web_accessible_resources": [
+        {
+            "resources": ["recorder.css"],
+            "matches": ["<all_urls>"]
+        }
+    ]
+}
