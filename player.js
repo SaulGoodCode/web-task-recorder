@@ -115,20 +115,35 @@
         el.click();
     }
 
-    function waitForElement(selector, timeout = 15000) {
+    function waitForElement(selector, timeout = 60000) {
         return new Promise((resolve) => {
-            const interval = 300;
-            let elapsed = 0;
-            const check = setInterval(() => {
+            const deadline = Date.now() + timeout;
+            let timer;
+            let finished = false;
+            const observer = new MutationObserver(check);
+            function finish(el) {
+                finished = true;
+                clearTimeout(timer);
+                observer.disconnect();
+                resolve(el);
+            }
+            function check() {
+                if (finished) return;
+                clearTimeout(timer);
+                if (window.__AUTO_TASK_CANCELLED__ || Date.now() >= deadline) {
+                    finish(null);
+                    return;
+                }
                 const el = findBySelector(selector);
                 if (el && (!selector.requireInteractive || isInteractive(el))) {
-                    clearInterval(check);
-                    resolve(el);
+                    finish(el);
                 } else {
-                    elapsed += interval;
-                    if (elapsed >= timeout) { clearInterval(check); resolve(null); }
+                    timer = setTimeout(check, Math.min(300, deadline - Date.now()));
                 }
-            }, interval);
+            }
+            // DOM 更新时立即检查，轮询补充检查样式变化；按真实时间计算超时。
+            observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+            check();
         });
     }
 
@@ -144,6 +159,7 @@
     let success = true;
 
     for (let i = 0; i < steps.length; i++) {
+        if (window.__AUTO_TASK_CANCELLED__) { success = false; break; }
         const step = steps[i];
         console.log(`[AutoTask Player] 步骤 ${i + 1}/${steps.length}: ${step.type}`, step);
 
@@ -161,9 +177,9 @@
                 await new Promise(r => setTimeout(r, ms));
             }
             else if (step.type === 'click' || step.type === 'press') {
-                const el = await waitForElement(step.selector, 15000);
+                const el = await waitForElement(step.selector);
                 if (!el) {
-                    console.warn(`[AutoTask Player] 步骤 ${i + 1} 找不到元素:`, step.selector);
+                    console.warn(`[AutoTask Player] 步骤 ${i + 1} 找不到元素（等待上限 60 秒）: ${JSON.stringify(step.selector)}; url=${location.href}; visibility=${document.visibilityState}`);
                     success = false;
                     break;
                 }
@@ -177,9 +193,9 @@
                 }
             }
             else if (step.type === 'fill') {
-                const el = await waitForElement(step.selector, 15000);
+                const el = await waitForElement(step.selector);
                 if (!el) {
-                    console.warn(`[AutoTask Player] 步骤 ${i + 1} 找不到输入框:`, step.selector);
+                    console.warn(`[AutoTask Player] 步骤 ${i + 1} 找不到输入框（等待上限 60 秒）: ${JSON.stringify(step.selector)}; url=${location.href}; visibility=${document.visibilityState}`);
                     success = false;
                     break;
                 }
@@ -198,7 +214,7 @@
                 }
             }
             else if (step.type === 'select') {
-                const el = await waitForElement(step.selector, 15000);
+                const el = await waitForElement(step.selector);
                 if (!el) { success = false; break; }
                 el.value = step.value;
                 el.dispatchEvent(new Event('change', { bubbles: true }));

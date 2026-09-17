@@ -80,7 +80,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     console.log(`Alarm triggered: ${alarm.name}`);
     getTaskById(alarm.name).then(task => {
         if (task) {
-            performSignIn(task);
+            performSignIn(task, { scheduled: true });
             scheduleTask(task, true);
         } else {
             chrome.alarms.clear(alarm.name);
@@ -89,7 +89,39 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 // ===== 播放执行 =====
-function performSignIn(task) {
+// 手动和定时共用队列，避免多个任务同时打开活动标签页。
+let playbackQueue = Promise.resolve();
+const pendingTasks = new Map();
+function performSignIn(task, { scheduled = false } = {}) {
+    if (pendingTasks.has(task.id)) return pendingTasks.get(task.id);
+    const run = playbackQueue.then(() => runWithRetries(task, scheduled ? 3 : 1));
+    const result = run.catch(err => {
+        console.error(`Task ${task.id} failed:`, err);
+        updateTaskStatus(task.id, 'failed');
+        return { success: false };
+    }).finally(() => pendingTasks.delete(task.id));
+    pendingTasks.set(task.id, result);
+    playbackQueue = result;
+    return result;
+}
+
+async function runWithRetries(task, maxAttempts) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        console.log(`Task ${task.id}: attempt ${attempt}/${maxAttempts}`);
+        const result = await runSignIn(task);
+        if (result.success || attempt === maxAttempts) {
+            updateTaskStatus(task.id, result.success ? 'success' : 'failed');
+            return result;
+        }
+        // 等旧页面关闭后才开始下一次；最后一次失败保留页面供排查。
+        if (result.tabId !== undefined) {
+            await chrome.tabs.remove(result.tabId).catch(() => {});
+        }
+        console.log(`Task ${task.id} failed; retrying (${attempt}/${maxAttempts - 1}).`);
+    }
+}
+
+function runSignIn(task) {
     return new Promise((resolve) => {
         console.log(`Performing task: ${task.name || task.url}`);
         let completed = false;
@@ -98,19 +130,24 @@ function performSignIn(task) {
         if (!task.steps || task.steps.length === 0) {
             console.log(`Task ${task.id} has no steps, visiting URL only.`);
             chrome.tabs.create({ url: task.url, active: true }, (tab) => {
+                if (chrome.runtime.lastError || !tab) {
+                    resolve({ success: false });
+                    return;
+                }
                 const tabId = tab.id;
                 let settled = false;
+                let timeout;
 
                 // 监听页面加载状态：complete 视为成功
                 const tabListener = (tabId_, changeInfo, tabObj) => {
                     if (tabId_ === tabId && changeInfo.status === 'complete' && !settled) {
                         chrome.tabs.onUpdated.removeListener(tabListener);
                         settled = true;
+                        clearTimeout(timeout);
                         console.log(`Task ${task.id} URL loaded successfully.`);
-                        updateTaskStatus(task.id, "success");
                         // 3 秒后关闭
-                        setTimeout(() => {
-                            chrome.tabs.remove(tabId).catch(() => { });
+                        setTimeout(async () => {
+                            await chrome.tabs.remove(tabId).catch(() => { });
                             resolve({ success: true });
                         }, 3000);
                     }
@@ -118,61 +155,84 @@ function performSignIn(task) {
                 chrome.tabs.onUpdated.addListener(tabListener);
 
                 // 超时保护：30 秒未加载完成视为失败
-                setTimeout(() => {
+                timeout = setTimeout(() => {
                     if (!settled) {
                         chrome.tabs.onUpdated.removeListener(tabListener);
                         settled = true;
                         console.warn(`Task ${task.id} URL failed to load within 30s.`);
-                        updateTaskStatus(task.id, "failed");
-                        chrome.tabs.remove(tabId).catch(() => { });
-                        resolve({ success: false });
+                        resolve({ success: false, tabId });
                     }
                 }, 30000);
+                chrome.tabs.get(tabId).then(current => tabListener(tabId, current)).catch(() => {});
             });
             return;
         }
 
         chrome.tabs.create({ url: task.url, active: true }, (tab) => {
+            if (chrome.runtime.lastError || !tab) {
+                resolve({ success: false });
+                return;
+            }
             const tabId = tab.id;
+
+            // 播放器等待期间定期调用扩展 API，避免 MV3 worker 空闲退出丢失队列。
+            const keepAlive = setInterval(() => chrome.tabs.get(tabId).catch(() => finish(false)), 20000);
+            let timeout;
+            let injectionTimer;
+            const finish = (success) => {
+                if (completed) return;
+                completed = true;
+                clearInterval(keepAlive);
+                clearTimeout(timeout);
+                clearTimeout(injectionTimer);
+                chrome.runtime.onMessage.removeListener(completionListener);
+                chrome.tabs.onUpdated.removeListener(tabListener);
+                if (success) {
+                    setTimeout(async () => {
+                        await chrome.tabs.remove(tabId).catch(() => {});
+                        resolve({ success: true });
+                    }, 5000);
+                } else {
+                    resolve({ success: false, tabId });
+                }
+            };
 
             // 完成监听
             const completionListener = (request, sender, sendResponse) => {
-                if (request.action === "play-complete" && request.taskId === task.id) {
-                    chrome.runtime.onMessage.removeListener(completionListener);
-                    completed = true;
+                if (request.action === "play-complete" && request.taskId === task.id && sender.tab?.id === tabId) {
                     console.log(`Task ${task.id} completed, success: ${request.success}`);
-                    updateTaskStatus(task.id, request.success ? "success" : "failed");
-                    if (request.success) {
-                        setTimeout(() => {
-                            chrome.tabs.remove(tabId).catch(() => { });
-                            resolve({ success: true });
-                        }, 5000);
-                    } else {
-                        resolve({ success: false });
-                    }
+                    finish(request.success === true);
                 }
             };
             chrome.runtime.onMessage.addListener(completionListener);
 
             // 超时保护
-            setTimeout(() => {
+            timeout = setTimeout(() => {
                 if (!completed) {
-                    chrome.runtime.onMessage.removeListener(completionListener);
                     console.warn(`Task ${task.id} timed out (3min).`);
-                    updateTaskStatus(task.id, "failed");
-                    resolve({ success: false });
+                    // 停止播放器，防止超时后继续提交签到。
+                    chrome.scripting.executeScript({ target: { tabId }, func: () => {
+                        window.__AUTO_TASK_CANCELLED__ = true;
+                    } }).catch(() => {});
+                    finish(false);
                 }
             }, 180000);
 
             // 页面加载完成后注入 player
-            const tabListener = (tabId_, changeInfo, tabObj) => {
-                if (tabId_ === tabId && changeInfo.status === 'complete') {
+            let injectionStarted = false;
+            const tabListener = (tabId_, changeInfo) => {
+                if (tabId_ === tabId && changeInfo.status === 'complete' && !completed && !injectionStarted) {
+                    injectionStarted = true;
                     chrome.tabs.onUpdated.removeListener(tabListener);
                     console.log("Tab loaded, injecting player...");
-                    setTimeout(() => injectPlayer(tabId, task), 2000);
+                    injectionTimer = setTimeout(() => {
+                        injectPlayer(tabId, task).catch(() => finish(false));
+                    }, 2000);
                 }
             };
             chrome.tabs.onUpdated.addListener(tabListener);
+            // 覆盖页面已在监听注册前加载完成的情况。
+            chrome.tabs.get(tabId).then(current => tabListener(tabId, current)).catch(() => finish(false));
         });
     });
 }
@@ -185,6 +245,7 @@ async function injectPlayer(tabId, task) {
             target: { tabId },
             func: (taskId, steps) => {
                 window.__AUTO_TASK_PLAY__ = { taskId, steps };
+                window.__AUTO_TASK_CANCELLED__ = false;
             },
             args: [task.id, task.steps]
         });
@@ -195,7 +256,7 @@ async function injectPlayer(tabId, task) {
         console.log(`Player injected for task ${task.id}`);
     } catch (err) {
         console.error(`Failed to inject player for task ${task.id}:`, err);
-        updateTaskStatus(task.id, "failed");
+        throw err;
     }
 }
 
