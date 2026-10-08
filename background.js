@@ -10,6 +10,15 @@ chrome.runtime.onStartup.addListener(() => {
     scheduleAll();
 });
 
+// service worker 每次唤醒时，为缺失闹钟的任务补建（不清除已有闹钟）
+(async function ensureAlarms() {
+    const [tasks, alarms] = await Promise.all([getTasks(), chrome.alarms.getAll()]);
+    const existing = new Set(alarms.map(a => a.name));
+    for (const task of tasks) {
+        if (!existing.has(task.id)) scheduleTask(task);
+    }
+})();
+
 // ===== 消息处理 =====
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     switch (request.action) {
@@ -240,6 +249,16 @@ function runSignIn(task) {
 // 注入播放器并执行步骤
 async function injectPlayer(tabId, task) {
     try {
+        // active 标签页仍可能位于最小化窗口中，SPA 动画/渲染会因此暂停。
+        const tab = await chrome.tabs.get(tabId);
+        const browserWindow = await chrome.windows.get(tab.windowId);
+        if (browserWindow.state === 'minimized') {
+            await chrome.windows.update(tab.windowId, { state: 'normal', focused: true });
+        } else if (!browserWindow.focused) {
+            // 已最大化或全屏的窗口仅聚焦，不改变其尺寸和状态。
+            await chrome.windows.update(tab.windowId, { focused: true });
+        }
+        await chrome.tabs.update(tabId, { active: true });
         // 先通过 executeScript 设置 window 变量，再注入 player.js 执行
         await chrome.scripting.executeScript({
             target: { tabId },
@@ -335,6 +354,7 @@ async function finishRecording(steps) {
     const tasks = await getTasks();
     tasks.push(task);
     await new Promise(r => chrome.storage.sync.set({ tasks }, r));
+    await scheduleTask(task);
 
     // 关闭录制 tab 并通知 UI
     chrome.tabs.remove(tabId).catch(() => { });

@@ -22,7 +22,8 @@ function clock() {
         async tick(ms) {
             const end = now + ms;
             for (;;) {
-                for (let i = 0; i < 20; i++) await Promise.resolve();
+                // 排空窗口查询/恢复、激活、注入和重试形成的异步调用链。
+                for (let i = 0; i < 100; i++) await Promise.resolve();
                 const entry = [...timers].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
                 if (!entry) break;
                 const [id, t] = entry;
@@ -55,7 +56,7 @@ function player(appearsAt) {
     };
     const window = { __AUTO_TASK_PLAY__: { taskId: 'a', steps: [{ type: 'click', selector: { css: '#checkin' } }] } };
     const context = {
-        ...time, window, console: { ...quiet, warn: text => warnings.push(text) },
+        ...time, window, URL, console: { ...quiet, warn: text => warnings.push(text) },
         location: { href: 'https://web.telegram.org/k/#@test_bot' },
         document: { readyState: 'complete', visibilityState: 'hidden', documentElement: {},
             querySelector: () => time.Date.now() >= appearsAt ? el : null },
@@ -95,16 +96,29 @@ test('cancelled player does not click an element that appears later', async () =
     assert.equal(p.messages[0].success, false);
 });
 
-function background({ status = 'complete', steps = [{ type: 'click' }] } = {}) {
+function background({ status = 'complete', steps = [{ type: 'click' }], windowState = 'normal', focused = true, restoreFails = false } = {}) {
     const time = clock();
     const opened = [], injections = [], closed = [], lifecycle = [], statuses = [];
     let failInjection = false;
+    const windowCalls = [];
     const chrome = {
         runtime: { onInstalled: event(), onStartup: event(), onMessage: event() },
         alarms: { onAlarm: event(), create() {} },
+        windows: {
+            async get(id) { assert.equal(id, 7); return { state: windowState, focused }; },
+            async update(id, props) {
+                assert.equal(id, 7);
+                windowCalls.push({ ...props });
+                if (restoreFails) throw Error('window restore failed');
+                windowState = props.state || windowState;
+                focused = props.focused;
+                lifecycle.push('window-ready');
+            }
+        },
         tabs: {
             onUpdated: event(),
-            create(options, callback) { const tab = { id: opened.length + 1, status }; opened.push(tab); lifecycle.push(`open:${tab.id}`); callback(tab); },
+            create(options, callback) { const tab = { id: opened.length + 1, windowId: 7, status }; opened.push(tab); lifecycle.push(`open:${tab.id}`); callback(tab); },
+            async update(id, props) { assert.equal(props.active, true); assert.notEqual(windowState, 'minimized'); assert.equal(focused, true); },
             get: async id => opened.find(tab => tab.id === id),
             remove: async id => { await Promise.resolve(); closed.push(id); lifecycle.push(`close:${id}`); }
         },
@@ -113,7 +127,7 @@ function background({ status = 'complete', steps = [{ type: 'click' }] } = {}) {
     };
     const context = vm.createContext({ ...time, chrome, console: quiet });
     vm.runInContext(source('background.js'), context);
-    return { time, chrome, opened, injections, closed, lifecycle, statuses, fail: () => { failInjection = true; },
+    return { time, chrome, opened, injections, closed, lifecycle, statuses, windowCalls, fail: () => { failInjection = true; },
         complete: (id, tabId, success) => chrome.runtime.onMessage.emit({ action: 'play-complete', taskId: id, success }, { tab: { id: tabId } }),
         run: id => context.performSignIn({ id, url: 'https://example.com', steps }, { scheduled: true }) };
 }
@@ -140,6 +154,37 @@ test('alarm entry point retains two retries', async () => {
     await b.time.tick(15000);
     assert.equal(b.opened.length, 3);
     assert.deepEqual(b.closed, [1, 2]);
+});
+
+for (const windowState of ['minimized', 'maximized', 'normal', 'fullscreen']) {
+    test(`restores/focuses ${windowState} window before playback injection`, async () => {
+        const b = background({ windowState, focused: false });
+        b.chrome.alarms.onAlarm.emit({ name: 'a' });
+        await b.time.tick(2500);
+        assert.deepEqual(b.windowCalls, [windowState === 'minimized' ? { state: 'normal', focused: true } : { focused: true }]);
+        assert.equal(b.injections.length, 2);
+        b.complete('a', 1, true);
+        await b.time.tick(6000);
+        assert.deepEqual(b.closed, [1]);
+    });
+}
+
+test('failed window restoration does not inject or click and uses scheduled retry policy', async () => {
+    const b = background({ windowState: 'minimized', focused: false, restoreFails: true });
+    const result = b.run('a');
+    await b.time.tick(15000);
+    assert.equal((await result).success, false);
+    assert.equal(b.injections.length, 0);
+    assert.equal(b.opened.length, 3);
+    assert.deepEqual(b.closed, [1, 2]);
+});
+
+test('URL-only tasks do not restore or focus the window', async () => {
+    const b = background({ steps: [], windowState: 'minimized', focused: false });
+    const result = b.run('a');
+    await b.time.tick(6000);
+    assert.equal((await result).success, true);
+    assert.deepEqual(b.windowCalls, []);
 });
 
 test('runs queue, deduplicate, and ignore completion from another tab', async () => {

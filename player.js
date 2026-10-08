@@ -52,6 +52,15 @@
 
     function findBySelector(selector) {
         if (!selector) return null;
+        // 兼容旧录制：菜单内部图标的 nth-of-type 路径会随输入区布局变化。
+        // 点击监听在外层按钮上，不依赖内部动画图标或兄弟节点序号。
+        if (isTelegramCommandsSelector(selector)) {
+            const candidates = Array.from(document.querySelectorAll(
+                '#column-center .chat-input-main .new-message-bot-commands'
+            )).filter(isInteractive);
+            // 不猜测多个聊天容器中哪一个是目标，等待切换/动画结束。
+            return candidates.length === 1 ? candidates[0] : null;
+        }
         // 1. role + name
         if (selector.role && selector.name) {
             const candidates = Array.from(document.querySelectorAll(
@@ -86,6 +95,12 @@
         return null;
     }
 
+    function isTelegramCommandsSelector(selector) {
+        return new URL(location.href).hostname === 'web.telegram.org' &&
+            (selector.kind === 'telegram-bot-commands' ||
+                /\.new-message-bot-commands(?=[\s.:#>\[]|$)/.test(selector.css || ''));
+    }
+
     function isInteractive(el) {
         if (!el) return false;
         const rect = el.getBoundingClientRect();
@@ -93,9 +108,11 @@
         const style = getComputedStyle(el);
         if (style.visibility === 'hidden' || style.display === 'none') return false;
         if (style.pointerEvents === 'none') return false;
+        if (el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
         const topEl = document.elementFromPoint(x, y);
+        if (!topEl) return false;
         if (topEl && topEl !== el && !el.contains(topEl) && !topEl.contains(el)) return false;
         return true;
     }

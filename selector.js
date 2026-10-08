@@ -91,6 +91,14 @@ function buildCssSelector(el) {
 // 为元素生成完整的选择器描述
 function buildSelector(el) {
     if (!el) return null;
+    if (new URL(location.href).hostname === 'web.telegram.org' &&
+        el.closest('#column-center .chat-input-main .new-message-bot-commands')) {
+        return {
+            kind: 'telegram-bot-commands',
+            css: '#column-center .chat-input-main .new-message-bot-commands',
+            requireInteractive: true
+        };
+    }
     const role = getRole(el);
     const name = getAccessibleName(el);
     const css = buildCssSelector(el);
