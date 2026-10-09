@@ -127,7 +127,10 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const idx = parseInt(e.target.dataset.index);
-                const deletedTaskId = tasks[idx].id;
+                const task = tasks[idx];
+                if (!task || !confirm(`确定删除任务「${task.name || task.url}」吗？`)) return;
+                const deletedTaskId = task.id;
+                chrome.alarms.clear(deletedTaskId);
                 tasks.splice(idx, 1);
                 if (taskStatuses[deletedTaskId]) {
                     delete taskStatuses[deletedTaskId];
