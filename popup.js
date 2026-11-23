@@ -327,6 +327,16 @@ document.addEventListener('DOMContentLoaded', () => {
         showStatus('已触发全部任务');
     });
 
+    const chkKeepTab = document.getElementById('chk-keep-tab');
+    chrome.storage.local.get('keepTabOpen', ({ keepTabOpen }) => {
+        chkKeepTab.checked = !!keepTabOpen;
+    });
+    chkKeepTab.addEventListener('change', () => {
+        chrome.storage.local.set({ keepTabOpen: chkKeepTab.checked }, () => {
+            showStatus(chkKeepTab.checked ? '执行后将保留标签页' : '执行后将自动关闭标签页');
+        });
+    });
+
     function showStatus(msg, color = '#888') {
         statusDiv.textContent = msg;
         statusDiv.style.color = color;

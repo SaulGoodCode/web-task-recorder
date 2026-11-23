@@ -50,8 +50,13 @@
         return map[tag] || null;
     }
 
-    function findBySelector(selector) {
+    // accept: 可选过滤函数（Telegram：只接受最新消息里的元素，避免点到历史菜单）
+    function findBySelector(selector, accept) {
         if (!selector) return null;
+        const pick = (list) => {
+            if (accept) list = list.filter(accept);
+            return list.length > 0 ? list[list.length - 1] : null;
+        };
         // 兼容旧录制：菜单内部图标的 nth-of-type 路径会随输入区布局变化。
         // 点击监听在外层按钮上，不依赖内部动画图标或兄弟节点序号。
         if (isTelegramCommandsSelector(selector)) {
@@ -71,11 +76,17 @@
                 const n = getAccessibleName(el);
                 return n === selector.name || n.includes(selector.name);
             });
-            if (candidates.length > 0) return candidates[candidates.length - 1];
+            const hit = pick(candidates);
+            if (hit) return hit;
         }
         // 2. CSS
         if (selector.css) {
-            try { const el = document.querySelector(selector.css); if (el) return el; } catch (e) { }
+            try {
+                const el = accept
+                    ? pick(Array.from(document.querySelectorAll(selector.css)))
+                    : document.querySelector(selector.css);
+                if (el) return el;
+            } catch (e) { }
         }
         // 3. 文本
         if (selector.text) {
@@ -85,7 +96,8 @@
                 const t = (el.textContent || '').trim();
                 return t === selector.text || t.includes(selector.text);
             });
-            if (candidates.length > 0) return candidates[candidates.length - 1];
+            const hit = pick(candidates);
+            if (hit) return hit;
         }
         // 4. input name
         if (selector.attrName) {
@@ -132,7 +144,40 @@
         el.click();
     }
 
-    function waitForElement(selector, timeout = 60000) {
+    // Telegram：最新一条消息的 mid（用于判断后续出现的是否为"新"消息）
+    function getBubbles() {
+        return Array.from(document.querySelectorAll('#column-center .bubble[data-mid]'));
+    }
+    function lastBubbleMid() {
+        const bs = getBubbles();
+        return bs.length ? Number(bs[bs.length - 1].dataset.mid) || 0 : 0;
+    }
+    // 只接受位于"最新一条消息"且比触发前更新的按钮，避免点到历史菜单。
+    function makeNewestBubbleFilter(minMid) {
+        return (el) => {
+            const b = el.closest('.bubble[data-mid]');
+            // 不在消息气泡里的元素（如命令弹窗里的 /start）不受限制；
+            // 但包含气泡的外层容器不算（文本匹配会命中它们）。
+            if (!b) return !el.querySelector('.bubble');
+            const bs = getBubbles();
+            return bs[bs.length - 1] === b && (Number(b.dataset.mid) || 0) > minMid;
+        };
+    }
+
+    async function waitForNewElement(selector, minMid, timeout = 60000) {
+        if (minMid == null) return waitForElement(selector, timeout);
+        const fresh = await waitForElement(selector, Math.min(30000, timeout), makeNewestBubbleFilter(minMid));
+        if (fresh) {
+            // 等新菜单布局稳定再点击
+            await new Promise(r => setTimeout(r, 500));
+            return fresh;
+        }
+        if (window.__AUTO_TASK_CANCELLED__) return null;
+        console.warn('[AutoTask Player] 未等到新菜单，退化为使用已有元素');
+        return waitForElement(selector, timeout);
+    }
+
+    function waitForElement(selector, timeout = 60000, accept) {
         return new Promise((resolve) => {
             const deadline = Date.now() + timeout;
             let timer;
@@ -151,7 +196,7 @@
                     finish(null);
                     return;
                 }
-                const el = findBySelector(selector);
+                const el = findBySelector(selector, accept);
                 if (el && (!selector.requireInteractive || isInteractive(el))) {
                     finish(el);
                 } else {
@@ -174,11 +219,25 @@
     // ===== 执行步骤 =====
     console.log(`[AutoTask Player] 开始回放任务 ${taskId}，共 ${steps.length} 步`);
     let success = true;
+    let staleSnapshot = null;
 
     for (let i = 0; i < steps.length; i++) {
         if (window.__AUTO_TASK_CANCELLED__) { success = false; break; }
         const step = steps[i];
         console.log(`[AutoTask Player] 步骤 ${i + 1}/${steps.length}: ${step.type}`, step);
+
+        // Telegram：当前步骤会触发新消息（如发送 /start），下一步点击必须等新菜单出现，
+        // 否则会点到聊天历史里旧菜单的同名按钮。在本步骤执行前记录已有按钮。
+        // wait 步骤不触发新消息，沿用之前的快照（菜单可能在 wait 期间出现）。
+        // 先取出上一步为本步骤准备的快照，再为下一步记录新快照（顺序不能反）。
+        const stale = staleSnapshot;
+        staleSnapshot = step.type === 'wait' ? stale : null;
+        const nextStep = steps[i + 1];
+        if (location.hostname === 'web.telegram.org' && nextStep && nextStep.type === 'click' &&
+            step.type !== 'navigate' && step.type !== 'wait' &&
+            !isTelegramCommandsSelector(nextStep.selector || {})) {
+            staleSnapshot = lastBubbleMid();
+        }
 
         try {
             if (step.type === 'navigate') {
@@ -194,7 +253,11 @@
                 await new Promise(r => setTimeout(r, ms));
             }
             else if (step.type === 'click' || step.type === 'press') {
-                const el = await waitForElement(step.selector);
+                const minMid = step.type === 'click' ? stale : null;
+                if (minMid != null) console.log(`[AutoTask Player] 步骤 ${i + 1} 等待比 mid=${minMid} 更新的消息中的按钮`);
+                const el = await waitForNewElement(step.selector, minMid);
+                const bubble = el && el.closest('.bubble[data-mid]');
+                if (bubble) console.log(`[AutoTask Player] 步骤 ${i + 1} 点击消息 mid=${bubble.dataset.mid} 中的按钮`);
                 if (!el) {
                     console.warn(`[AutoTask Player] 步骤 ${i + 1} 找不到元素（等待上限 60 秒）: ${JSON.stringify(step.selector)}; url=${location.href}; visibility=${document.visibilityState}`);
                     success = false;

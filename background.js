@@ -98,6 +98,16 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 // ===== 播放执行 =====
+// 调试开关：开启后执行任务的标签页不自动关闭，便于查看页面和控制台日志。
+async function closeTaskTab(tabId) {
+    const { keepTabOpen } = await chrome.storage.local.get('keepTabOpen').catch(() => ({}));
+    if (keepTabOpen) {
+        console.log(`Debug: keeping tab ${tabId} open.`);
+        return;
+    }
+    await chrome.tabs.remove(tabId).catch(() => {});
+}
+
 // 手动和定时共用队列，避免多个任务同时打开活动标签页。
 let playbackQueue = Promise.resolve();
 const pendingTasks = new Map();
@@ -124,7 +134,7 @@ async function runWithRetries(task, maxAttempts) {
         }
         // 等旧页面关闭后才开始下一次；最后一次失败保留页面供排查。
         if (result.tabId !== undefined) {
-            await chrome.tabs.remove(result.tabId).catch(() => {});
+            await closeTaskTab(result.tabId);
         }
         console.log(`Task ${task.id} failed; retrying (${attempt}/${maxAttempts - 1}).`);
     }
@@ -156,7 +166,7 @@ function runSignIn(task) {
                         console.log(`Task ${task.id} URL loaded successfully.`);
                         // 3 秒后关闭
                         setTimeout(async () => {
-                            await chrome.tabs.remove(tabId).catch(() => { });
+                            await closeTaskTab(tabId);
                             resolve({ success: true });
                         }, 3000);
                     }
@@ -198,7 +208,7 @@ function runSignIn(task) {
                 chrome.tabs.onUpdated.removeListener(tabListener);
                 if (success) {
                     setTimeout(async () => {
-                        await chrome.tabs.remove(tabId).catch(() => {});
+                        await closeTaskTab(tabId);
                         resolve({ success: true });
                     }, 5000);
                 } else {
